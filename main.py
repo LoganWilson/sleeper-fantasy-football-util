@@ -4,8 +4,9 @@ import os
 import json
 from getplayers import get_or_generate_players_files 
 from fileutil import save_json_file
-import csv
-
+from openpyxl import Workbook
+from openpyxl.styles import Border, Side, PatternFill
+from openpyxl.utils import get_column_letter
 
 # Load environment variables from .env file
 load_dotenv()
@@ -61,6 +62,15 @@ else:
                 week_stats = json.load(file)
         return week_stats
     
+    # TODO calculate values: 
+    # top_qb_week = ""
+    # top_qb_week_score = -1
+    # top_rb_week = ""
+    # top_rb_week_score = -1
+    # top_wr_week = ""
+    # top_wr_week_score = -1
+    # top_te_week = ""
+    # top_te_week_score = -1
     def get_player_scores():
         player_scores = {}
     
@@ -84,12 +94,13 @@ else:
                             player_score += points_for_each * times_it_occured
                     return player_score                    
                 
-                if any(char.isalpha() for char in player_id):
-                    # it's a defense, handle scoring differently
-                    #for stat in stats:
-                        #if stat is not a defensive stat, remove it
-                    #valid_stats=
-                    #calculate_score_for_this_week(valid_stats)
+                if "TEAM" in player_id:
+                #     # it's a defense, handle scoring differently
+                #     #for stat in stats:
+                #         #if stat is not a defensive stat, remove it
+                #     #valid_stats=
+                #     #calculate_score_for_this_week(valid_stats)
+                    # print('t')
                     player_score=0
                 else: 
                     # it's a player
@@ -100,7 +111,7 @@ else:
                     player_scores[player_id] += player_score       
         return player_scores
     
-    # Fassign a cost to each player
+    # assign a cost to each player
     def get_player_costs(players, sorted_player_scores):
         players_by_position = {}
         player_costs = {}
@@ -120,6 +131,7 @@ else:
         set_position_salaries(players_by_position, "RB")
         set_position_salaries(players_by_position, "WR")
         set_position_salaries(players_by_position, "TE")
+        set_position_salaries(players_by_position, "DEF")
         return player_costs
     
         
@@ -135,64 +147,140 @@ else:
     # get all rosters
     rosters = league.get_rosters()
     league_users = league.get_users()
-    
-        
-    # create roster CSV
-    # Open a new CSV file for writing
-    with open('roster_costs.csv', mode='w', newline='') as file:
-        writer = csv.writer(file)
-        
+
+    # Create a dictionary to store player ranks
+    position_counters = {}
+    player_ranks = {}
+
+    for player_id, _ in sorted_player_scores:
+        position = players[player_id]['position']
+        if position not in position_counters:
+            position_counters[position] = 1
+        else:
+            position_counters[position] += 1
+        player_ranks[player_id] = f"{position}{position_counters[position]}"
+
+    def write_workbook():
+        # Create a new workbook and select the active worksheet
+        wb = Workbook()
+        ws = wb.active
+
         # Write the header row
         header = []
         for roster in rosters:
-            owner_id=roster['owner_id']
+            owner_id = roster['owner_id']
+            # Search for the team name or display name in league_users
             owner_info = next((user for user in league_users if user['user_id'] == owner_id), None)
-            owner_team_name = owner_info['metadata'].get('team_name', owner_info.get('display_name', 'Unknown'))
-            header.append(owner_team_name)
-            header.extend(['', ''])  # Two blank cells for each roster
-        writer.writerow(header)
-        
+            if owner_info:
+                owner_team_name = owner_info['metadata'].get('team_name')
+                display_name = owner_info.get('display_name', 'Unknown')
+                if owner_team_name:
+                    header.append(owner_team_name)
+                    header.append(display_name)
+                    header.append("")
+                else:
+                    header.append(display_name)
+                    header.append("")
+                    header.append("")
+            else:
+                header.append('Unknown')
+        ws.append(header)
+
         # Write the second row
         second_row = []
         for _ in rosters:
-            second_row.extend(['Player', 'Cost', ''])  # "Player", "Cost", and a blank cell for each roster
-        writer.writerow(second_row)
-        
+            second_row.extend(['Player', 'Rank', 'Cost'])
+        ws.append(second_row)
+
         # Determine the maximum number of players in any roster
         max_players = max(len(roster['players']) for roster in rosters)
-        
-        # Write each player's ID and cost for each roster
+
+        # Write each player's ID, rank, and cost for each roster
         for i in range(max_players):
             row = []
             for roster in rosters:
                 if i < len(roster['players']):
                     player_id = roster['players'][i]
-                    player_cost = player_costs.get(player_id, '')
+                    player_cost = float(player_costs.get(player_id, ''))
                     player = players[player_id]
-                    # use team if full_name doesn't exist, since it's a defense
+                    # Use team if full_name doesn't exist, since it's a defense
                     player_name = player.get('full_name', player.get('team', 'Unknown'))
-                    row.extend([player_name, player_cost, ''])
+                    player_rank = player_ranks.get(player_id, '')
+                    row.extend([player_name, player_rank, player_cost])
                 else:
                     row.extend(['', '', ''])  # Fill with blanks if no more players in this roster
-            writer.writerow(row)
-        
-    # total the cost of each player on each roster and write next to each player
-    
-    print('end')
-    
+            ws.append(row)
+
+        # Apply vertical borders
+        thin_border = Border(left=Side(style='thin'))
+
+        for col in range(1, len(rosters) * 3 + 1, 3):
+            for row in range(1, max_players + 3):  # +3 to include header and second row
+                cell = ws.cell(row=row, column=col)
+                cell.border = thin_border
+
+        # Create a black border style for the bottom
+        black_bottom_border = Border(bottom=Side(style='thin', color='000000'))
+        # Apply the black bottom border to each cell in row 2
+        for col in range(1, ws.max_column + 1):
+            ws.cell(row=2, column=col).border = black_bottom_border
+
+        # Draw a red line across the bottom of row 22
+        red_border = Border(bottom=Side(style='thin', color='FF0000'))
+        for col in range(1, len(rosters) * 3 + 1):
+            cell = ws.cell(row=22, column=col)
+            cell.border = red_border
             
-    
-                    
+        # Draw a black line across the bottom row
+        bottom_row = ws.max_row + 1
+        black_border = Border(bottom=Side(style='thin', color='000000'))
+        for col in range(1, len(rosters) * 3 + 1):
+            ws.cell(row=bottom_row, column=col).border = black_border
+
+        # Insert "Total:" label and SUM formula
+        for col in range(3, len(rosters) * 3 + 1, 3):
+            # total_label_cell = ws.cell(row=bottom_row + 1, column=col - 1, value="Total:")
+            sum_formula = f"=SUM({get_column_letter(col)}3:{get_column_letter(col)}{max_players + 2})"
+            total_cell = ws.cell(row=bottom_row + 1, column=col, value=sum_formula)
         
+        # Adjust column widths
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter  # Get the column name
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = (max_length + 2)
+            ws.column_dimensions[column].width = adjusted_width
 
-    
-    
-    
-    
-    
-    
-    # get player scores for the regular season
-    
+        # Add specified lines in column A and "dummy val" in column B
+        season_payout_keys = [
+            "$10 1st place regular season",
+            "$10 2nd place regular season",
+            "$10 Top qb week",
+            "$10 Top rb week",
+            "$10 Top wr week",
+            "$10 Top te week",
+            "$20 first place championship",
+            "$10 second place championship",
+            "$10 third place championship"
+        ]
+
+        # Find the first empty row in column A
+        first_empty_row = ws.max_row + 2  # +2 to add a blank line
+
+        for i, line in enumerate(season_payout_keys, start=first_empty_row):
+            ws.cell(row=i, column=1, value=line)
+            ws.cell(row=i, column=2, value="dummy val")
+
+            
+        # Save the workbook
+        wb.save('roster_costs.xlsx')
+
+    write_workbook()
     
 
-    # get the number of weeks in the season
+    print('end')
