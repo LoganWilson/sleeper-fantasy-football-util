@@ -61,18 +61,23 @@ else:
             with open(json_file, 'r') as file:
                 week_stats = json.load(file)
         return week_stats
-    
-    # TODO calculate values: 
-    # top_qb_week = ""
-    # top_qb_week_score = -1
-    # top_rb_week = ""
-    # top_rb_week_score = -1
-    # top_wr_week = ""
-    # top_wr_week_score = -1
-    # top_te_week = ""
-    # top_te_week_score = -1
-    def get_player_scores():
+
+    def get_player_scores(players):
         player_scores = {}
+        top_week_players = {
+            "top_qb_week": "",
+            "top_qb_week_score": -1,
+            "top_qb_week_player": "",
+            "top_rb_week": "",
+            "top_rb_week_score": -1,
+            "top_rb_week_player": "",
+            "top_wr_week": "",
+            "top_wr_week_score": -1,
+            "top_wr_week_player": "",
+            "top_te_week": "",
+            "top_te_week_score": -1,
+            "top_te_week_player": ""
+        }
     
         # only get scores for the weeks that were a part of the season
         for week in range(1, weeks_in_season + 1):
@@ -92,7 +97,29 @@ else:
                             # if points_for_each < 0:
                             #     print('tst')
                             player_score += points_for_each * times_it_occured
-                    return player_score                    
+                    return player_score  
+                
+                def set_top_score_for_position(position, player_id, player_score, week):
+                    if position == "QB":
+                        if player_score > top_week_players["top_qb_week_score"]:
+                            top_week_players["top_qb_week_score"] = player_score
+                            top_week_players["top_qb_week"] = week
+                            top_week_players["top_qb_week_player"] = player_id
+                    elif position == "RB":
+                        if player_score > top_week_players["top_rb_week_score"]:
+                            top_week_players["top_rb_week_score"] = player_score
+                            top_week_players["top_rb_week"] = week
+                            top_week_players["top_rb_week_player"] = player_id
+                    elif position == "WR":
+                        if player_score > top_week_players["top_wr_week_score"]:
+                            top_week_players["top_wr_week_score"] = player_score
+                            top_week_players["top_wr_week"] = week
+                            top_week_players["top_wr_week_player"] = player_id
+                    elif position == "TE":
+                        if player_score > top_week_players["top_te_week_score"]:
+                            top_week_players["top_te_week_score"] = player_score
+                            top_week_players["top_te_week"] = week
+                            top_week_players["top_te_week_player"] = player_id              
                 
                 if "TEAM" in player_id:
                 #     # it's a defense, handle scoring differently
@@ -108,8 +135,9 @@ else:
                     #     print('t')
                     player_score = calculate_score_for_this_week(player_score, stats)
                     player_scores.setdefault(player_id, 0) # create a new key if it doesn't exist
-                    player_scores[player_id] += player_score       
-        return player_scores
+                    player_scores[player_id] += player_score  
+                    set_top_score_for_position(players[player_id]['position'], player_id, player_score, week)     
+        return player_scores, top_week_players
     
     # assign a cost to each player
     def get_player_costs(players, sorted_player_scores):
@@ -136,7 +164,7 @@ else:
     
         
     players = get_or_generate_players_files()
-    player_scores = get_player_scores()
+    player_scores, top_week_players = get_player_scores(players)
     
     # Sort the dictionary by values in descending order and convert to a list of tuples
     sorted_player_scores = sorted(player_scores.items(), key=lambda item: item[1], reverse=True)
@@ -256,25 +284,24 @@ else:
             adjusted_width = (max_length + 2)
             ws.column_dimensions[column].width = adjusted_width
 
-        # Add specified lines in column A and "dummy val" in column B
-        season_payout_keys = [
-            "$10 1st place regular season",
-            "$10 2nd place regular season",
-            "$10 Top qb week",
-            "$10 Top rb week",
-            "$10 Top wr week",
-            "$10 Top te week",
-            "$20 first place championship",
-            "$10 second place championship",
-            "$10 third place championship"
-        ]
+        season_payout = {
+            "$10 1st place regular season": "dummy val",
+            "$10 2nd place regular season": "dummy val",
+            "$10 Top qb week": f"{players[top_week_players["top_qb_week_player"]].get("full_name")} week {top_week_players["top_qb_week"]} with score {top_week_players["top_qb_week_score"]}",
+            "$10 Top rb week": f"{players[top_week_players["top_rb_week_player"]].get("full_name")} week {top_week_players["top_rb_week"]} with score {top_week_players["top_rb_week_score"]}",
+            "$10 Top wr week": f"{players[top_week_players["top_wr_week_player"]].get("full_name")} week {top_week_players["top_wr_week"]} with score {top_week_players["top_wr_week_score"]}",
+            "$10 Top te week": f"{players[top_week_players["top_te_week_player"]].get("full_name")} week {top_week_players["top_te_week"]} with score {top_week_players["top_te_week_score"]}",
+            "$20 first place championship": "dummy val",
+            "$10 second place championship": "dummy val",
+            "$10 third place championship": "dummy val",
+        }
 
         # Find the first empty row in column A
         first_empty_row = ws.max_row + 2  # +2 to add a blank line
 
-        for i, line in enumerate(season_payout_keys, start=first_empty_row):
-            ws.cell(row=i, column=1, value=line)
-            ws.cell(row=i, column=2, value="dummy val")
+        for i, (key, value) in enumerate(season_payout.items(), start=first_empty_row):
+            ws.cell(row=i, column=1, value=key)
+            ws.cell(row=i, column=2, value=value)
 
             
         # Save the workbook
